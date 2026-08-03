@@ -50,8 +50,18 @@ function shortPreview(preview: string): string {
   return out;
 }
 
-/** "Bash: npm test" — the emitted tool title plus a clamped preview. */
+/**
+ * "Bash: Run the test suite" — the emitted tool title plus a clamped preview.
+ * A human-authored `description` argument (Claude Code sends one with every
+ * shell call) beats the raw command line: the bar is a status line, not a
+ * terminal, and `sed -n '420,432p' …` reads as noise there. The session panel
+ * still shows the full command.
+ */
 function toolActivity(item: ToolItem): string {
+  const description = item.args?.description;
+  if (typeof description === "string" && description.trim().length > 0) {
+    return `${item.title}: ${shortPreview(description.trim())}`;
+  }
   const preview = item.descriptor?.preview;
   if (typeof preview === "string" && preview.trim().length > 0) {
     return `${item.title}: ${shortPreview(preview.trim())}`;
@@ -111,10 +121,21 @@ const USAGE_TEXT = /Tokens:\s*(\d+)\/(\d+)/;
 export function buildStableActivityStatus(
   transcript: TranscriptItem[],
   channelId: string | null,
+  threadRootId: string | null = null,
 ): StableActivityStatus {
-  const scoped = channelId
+  const channelScoped = channelId
     ? transcript.filter((item) => item.channelId === channelId)
     : transcript;
+  // Thread bars lock onto their own turn: the emitting harness stamps items
+  // with the thread root shortened as sessionId, so prefix match selects them.
+  const scoped = threadRootId
+    ? channelScoped.filter(
+        (item) =>
+          typeof item.sessionId === "string" &&
+          item.sessionId.length > 0 &&
+          threadRootId.startsWith(item.sessionId),
+      )
+    : channelScoped;
 
   let currentTurnId: string | null = null;
   for (let i = scoped.length - 1; i >= 0; i--) {
